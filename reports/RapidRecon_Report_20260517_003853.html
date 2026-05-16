@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>SUT PROJECTS - Forensic Audit Report</title>
+    <style>
+        :root {
+            --bg: #0f172a; --card: #1e293b; --accent: #38bdf8;
+            --critical: #ef4444; --high: #fb923c; --medium: #facc15; --low: #4ade80; --info: #38bdf8;
+        }
+        body { background: var(--bg); color: #f8fafc; font-family: 'Inter', sans-serif; margin: 0; padding: 40px; }
+        .container { max-width: 1200px; margin: auto; }
+        header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #334155; padding-bottom: 20px; margin-bottom: 40px; }
+        .stat-badge { background: var(--accent); padding: 10px 20px; border-radius: 12px; font-weight: bold; font-size: 1.1em; box-shadow: 0 4px 15px rgba(56, 189, 248, 0.3); }
+        .host-card { background: var(--card); border-radius: 20px; padding: 30px; margin-bottom: 30px; border-left: 8px solid #334155; transition: 0.3s; }
+        .host-card:hover { transform: translateY(-5px); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .lvl-critical { border-left-color: var(--critical); } .lvl-high { border-left-color: var(--high); }
+        .lvl-medium { border-left-color: var(--medium); } .lvl-low { border-left-color: var(--low); }
+        .lvl-info { border-left-color: var(--info); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; background: #0f172a66; padding: 20px; border-radius: 15px; margin: 20px 0; }
+        .grid div b { color: var(--accent); display: block; font-size: 0.8em; text-transform: uppercase; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th { text-align: left; padding: 12px; color: #94a3b8; border-bottom: 2px solid #334155; }
+        td { padding: 12px; border-bottom: 1px solid #334155; font-size: 0.95em; }
+        .risk-tag { padding: 4px 10px; border-radius: 8px; font-size: 0.8em; font-weight: bold; text-transform: uppercase; }
+        .tag-critical { background: #7f1d1d; color: #fecaca; } .tag-high { background: #7c2d12; color: #ffedd5; }
+        .tag-medium { background: #713f12; color: #fef9c3; } .tag-info { background: #1e3a8a; color: #dbeafe; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1 style="margin:0; color:var(--accent)">SUT PROJECTS: Forensic Audit</h1>
+                <p style="color:#94a3b8">Target: <b>127.0.0.1</b> | Scan Date: 2026-05-17 00:38</p>
+            </div>
+            <div class="stat-badge">Total Devices: 1</div>
+        </header>
+
+        <div class="host-card lvl-none">
+            <div style="display:flex; justify-content:space-between; align-items:center">
+                <h2 style="margin:0">127.0.0.1 <small style="color:#64748b; font-weight:normal">(localhost)</small></h2>
+                <span class="risk-tag tag-none">none</span>
+            </div>
+            <div class="grid">
+                <div><b>MAC Address</b>Unknown</div>
+                <div><b>Vendor</b>Unknown</div>
+                <div><b>Latency</b>3ms</div>
+                <div><b>TTL Value</b>64</div>
+            </div>
+            <table>
+                <thead>
+                    <tr><th>Port</th><th>Service / Version</th><th>Risk Assessment</th><th>CVE / Mitigation</th></tr>
+                </thead>
+                <tbody></tbody></table></div></div></body></html>
