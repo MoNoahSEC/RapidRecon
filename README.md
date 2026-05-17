@@ -14,7 +14,7 @@
 <br>
 
 <div align="center">
-  <img src="assets/rapidrecon_demo.webp" alt="RapidRecon Action Demo" width="900" style="border-radius: 12px; box-shadow: 0px 10px 20px rgba(0,0,0,0.5);">
+  <img src="assets/rapidrecon_demo.gif" alt="RapidRecon Action Demo" width="900" style="border-radius: 12px; box-shadow: 0px 10px 20px rgba(0,0,0,0.5);">
 </div>
 
 <br>
