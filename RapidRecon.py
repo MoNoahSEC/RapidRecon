@@ -132,8 +132,10 @@ class HostDiscovery:
     hostname: str = ""
     mac_address: str = "Unknown"
     vendor: str = "Unknown"
+    os_guess: str = "Unknown"
     ttl: int = 0
     latency: str = "0ms"
+    is_public: bool = False
     open_ports: Dict[int, PortDiscovery] = field(default_factory=dict)
     highest_risk: str = "none"
     scan_timestamp: str = field(default_factory=lambda: datetime.now().strftime("%H:%M:%S"))
@@ -173,12 +175,23 @@ class NetworkScanner:
             
         logger.info(f"Discovering hosts in {target_range} (Total IPs: {len(ips)})...")
         
+        live_hosts = []
         tasks = [self._probe_single_host(ip) for ip in ips]
-        results = await asyncio.gather(*tasks)
-        live_hosts = [r for r in results if r is not None]
+        
+        # Live progress UI
+        completed = 0
+        total = len(tasks)
+        for coro in asyncio.as_completed(tasks):
+            res = await coro
+            completed += 1
+            if res:
+                live_hosts.append(res)
+            sys.stdout.write(f"\r{TERMINAL_COLORS['cyan']}[*]{TERMINAL_COLORS['reset']} Scanning: {completed}/{total} | Found: {len(live_hosts)} live hosts")
+            sys.stdout.flush()
+        print() # Clear the progress line with a newline
         
         # Log manually colored success message to preserve the green checkmark look
-        logger.info(colorize_text("green", f"[✓] Found {len(live_hosts)} active hosts."))
+        logger.info(colorize_text("green", f"[✓] Discovery complete. Found {len(live_hosts)} active hosts."))
         return sorted(live_hosts, key=lambda x: list(map(int, x.ip.split("."))))
 
     def _expand_target(self, target: str) -> List[str]:
@@ -198,39 +211,51 @@ class NetworkScanner:
 
     async def _probe_single_host(self, ip: str) -> Optional[HostDiscovery]:
         """Checks if a host is alive via ICMP or common TCP ports."""
-        loop = asyncio.get_event_loop()
-        is_alive, ttl, latency = await loop.run_in_executor(None, self._ping_host, ip)
-        
-        if not is_alive:
-            # Fallback TCP probe for firewalled hosts blocking ICMP
-            is_alive = await self._quick_tcp_check(ip, [80, 443, 22, 445])
-        
-        if is_alive:
-            logger.debug(f"Host {ip} is UP ({latency})")
-            return HostDiscovery(ip=ip, ttl=ttl, latency=latency)
-        return None
+        async with self.semaphore:
+            is_alive, ttl, latency = await self._ping_host_async(ip)
+            
+            if not is_alive:
+                # Fallback TCP probe for firewalled hosts blocking ICMP
+                is_alive = await self._quick_tcp_check(ip, [80, 443, 22, 445])
+            
+            if is_alive:
+                logger.debug(f"Host {ip} is UP ({latency})")
+                host = HostDiscovery(ip=ip, ttl=ttl, latency=latency)
+                try:
+                    if not ipaddress.ip_address(ip).is_private:
+                        host.is_public = True
+                except ValueError:
+                    pass
+                return host
+            return None
 
-    def _ping_host(self, ip: str) -> Tuple[bool, int, str]:
-        """Standard ICMP ping wrapper with OS-specific parameters."""
+    async def _ping_host_async(self, ip: str) -> Tuple[bool, int, str]:
+        """Standard ICMP ping wrapper using async subprocess."""
         param = "-n" if platform.system().lower() == "windows" else "-c"
         wait = "-w" if platform.system().lower() == "windows" else "-W"
         timeout_val = str(int(self.timeout * 1000)) if platform.system().lower() == "windows" else str(int(self.timeout))
         
         try:
             start_time = time.perf_counter()
-            proc = subprocess.run(
-                ["ping", param, "1", wait, timeout_val, ip], 
-                capture_output=True, text=True, timeout=self.timeout + 1
+            proc = await asyncio.create_subprocess_exec(
+                "ping", param, "1", wait, timeout_val, ip,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=self.timeout + 1.5)
             duration = f"{int((time.perf_counter() - start_time) * 1000)}ms"
             
             if proc.returncode == 0:
-                ttl_match = re.search(r"ttl=(\d+)", proc.stdout, re.I)
+                out_str = stdout.decode(errors='ignore')
+                ttl_match = re.search(r"ttl=(\d+)", out_str, re.I)
                 ttl = int(ttl_match.group(1)) if ttl_match else 0
                 return True, ttl, duration
             return False, 0, "0ms"
-        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        except (asyncio.TimeoutError, FileNotFoundError, OSError) as e:
             logger.debug(f"Ping failed for {ip}: {e}")
+            try:
+                proc.kill()
+            except Exception:
+                pass
             return False, 0, "0ms"
 
     async def _quick_tcp_check(self, ip: str, ports: List[int]) -> bool:
@@ -256,13 +281,21 @@ class NetworkScanner:
         ports = self._parse_port_range(port_range)
         logger.info(f"Scanning {len(ports)} ports on {host.ip}...")
         
+        if host.ttl > 0:
+            if host.ttl <= 64: host.os_guess = "Linux/Unix"
+            elif host.ttl <= 128: host.os_guess = "Windows"
+            elif host.ttl <= 255: host.os_guess = "Network Device"
+
         # Identify MAC and Hostname
+        host.mac_address = await self._resolve_mac_async(host.ip)
         loop = asyncio.get_event_loop()
-        host.mac_address = await loop.run_in_executor(None, self._resolve_mac, host.ip)
-        try: 
-            host.hostname = await loop.run_in_executor(None, lambda: socket.gethostbyaddr(host.ip)[0])
-        except socket.herror: 
-            host.hostname = host.ip
+        try:
+            # Add a timeout to gethostbyaddr so it doesn't block indefinitely
+            def _resolve_host():
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.settimeout(0.5)
+                return socket.gethostbyaddr(host.ip)[0]
+            host.hostname = await asyncio.wait_for(loop.run_in_executor(None, _resolve_host), timeout=1.0)
         except Exception as e:
             logger.debug(f"Hostname resolution failed for {host.ip}: {e}")
             host.hostname = host.ip
@@ -306,16 +339,24 @@ class NetworkScanner:
                 logger.warning(f"Skipping invalid port expression: {part}")
         return sorted(list(ports))
 
-    def _resolve_mac(self, ip: str) -> str:
-        """Retrieves MAC address from the local ARP cache."""
+    async def _resolve_mac_async(self, ip: str) -> str:
+        """Retrieves MAC address from the local ARP cache using async subprocess."""
         try:
             if platform.system().lower() != "windows":
-                res = subprocess.run(["ip", "neighbor", "show", ip], capture_output=True, text=True)
-                match = re.search(r"([0-9a-f]{2}[:-]){5}([0-9a-f]{2})", res.stdout, re.I)
+                proc = await asyncio.create_subprocess_exec(
+                    "ip", "neighbor", "show", ip,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=1.0)
+                match = re.search(r"([0-9a-f]{2}[:-]){5}([0-9a-f]{2})", stdout.decode(errors='ignore'), re.I)
                 return match.group(0).upper() if match else "Unknown"
             else:
-                res = subprocess.run(["arp", "-a", ip], capture_output=True, text=True)
-                match = re.search(r"([0-9a-f]{2}-){5}[0-9a-f]{2}", res.stdout, re.I)
+                proc = await asyncio.create_subprocess_exec(
+                    "arp", "-a", ip,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=1.0)
+                match = re.search(r"([0-9a-f]{2}-){5}[0-9a-f]{2}", stdout.decode(errors='ignore'), re.I)
                 return match.group(0).upper().replace("-", ":") if match else "Unknown"
         except Exception as e:
             logger.debug(f"MAC resolution failed for {ip}: {e}")
@@ -410,8 +451,132 @@ class SecurityAnalyst:
                 elif "apache" in b_low: port_res.service = "Apache Web Server"
                 elif "nginx" in b_low: port_res.service = "Nginx Web Server"
 
-        # 3. Calculate final host risk score
+            # New Feature: Anonymous FTP Check
+            if port_res.port == 21:
+                if await self._check_anonymous_ftp(host.ip):
+                    port_res.risk_level = "critical"
+                    port_res.risk_description = "Anonymous FTP Enabled!"
+                    port_res.recommendation = "Disable anonymous login immediately"
+
+            # New Feature: Outdated OpenSSH Check
+            if port_res.port == 22 and port_res.banner:
+                if any(v in port_res.banner for v in ["OpenSSH_4", "OpenSSH_5", "OpenSSH_6"]):
+                    port_res.risk_level = "high"
+                    port_res.risk_description = "Outdated OpenSSH Version"
+                    port_res.recommendation = "Upgrade OpenSSH immediately"
+
+            # New Feature: Redis No-Auth Check
+            if port_res.port == 6379:
+                if await self._check_redis_auth(host.ip):
+                    port_res.risk_level = "critical"
+                    port_res.risk_description = "Redis No-Auth Vulnerability!"
+                    port_res.recommendation = "Enable requirepass in redis.conf"
+
+            # New Feature: HTTP Security Headers, CORS, & Web Page Title Check
+            if port_res.port in [80, 443, 8080, 8443]:
+                headers = await self._check_http_headers(host.ip, port_res.port)
+                if headers:
+                    server = headers.get("server", "")
+                    title = headers.get("page_title", "")
+                    details = []
+                    if server: details.append(f"Server: {server}")
+                    if title: details.append(f"Title: {title}")
+                    if details:
+                        port_res.version = " | ".join(details)
+                    
+                    if "x-frame-options" not in headers and port_res.risk_level in ["info", "low"]:
+                        port_res.risk_level = "low"
+                        port_res.risk_description = "Missing X-Frame-Options (Clickjacking)"
+                        
+                    acao = headers.get("access-control-allow-origin", "")
+                    if acao == "*" or "evil-domain.com" in acao:
+                        port_res.risk_level = "high"
+                        port_res.risk_description = "Insecure CORS Policy"
+                        port_res.recommendation = "Restrict Access-Control-Allow-Origin to trusted domains"
+
+        # 3. Apply Public Edge Exposure Rules (Strict)
+        if host.is_public:
+            for port, pr in host.open_ports.items():
+                if port in [22, 23, 135, 139, 445, 1433, 3306, 3389, 5900]:
+                    if pr.risk_level in ["info", "low", "medium"]:
+                        pr.risk_level = "critical"
+                        pr.risk_description = f"Critical service exposed on PUBLIC WAN!"
+                        pr.recommendation = "Block immediately at Edge Firewall"
+
+        # 4. Calculate final host risk score
         self._calculate_host_risk(host)
+
+    async def _check_redis_auth(self, ip: str) -> bool:
+        """Returns True if Redis is accessible without authentication."""
+        try:
+            reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, 6379), timeout=2.0)
+            writer.write(b"PING\r\n")
+            await writer.drain()
+            data = await asyncio.wait_for(reader.read(1024), timeout=2.0)
+            writer.close()
+            await writer.wait_closed()
+            return b"PONG" in data
+        except Exception:
+            return False
+
+    async def _check_anonymous_ftp(self, ip: str) -> bool:
+        try:
+            reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, 21), timeout=2.0)
+            data = await asyncio.wait_for(reader.read(256), timeout=1.0)
+            writer.write(b"USER anonymous\r\n")
+            await writer.drain()
+            data = await asyncio.wait_for(reader.read(256), timeout=1.0)
+            if b"331" in data:
+                writer.write(b"PASS anonymous@example.com\r\n")
+                await writer.drain()
+                data = await asyncio.wait_for(reader.read(256), timeout=1.0)
+                if b"230" in data:
+                    writer.close()
+                    await writer.wait_closed()
+                    return True
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
+        return False
+
+    async def _check_http_headers(self, ip: str, port: int) -> Dict[str, str]:
+        headers = {}
+        try:
+            reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout=2.0)
+            req = f"GET / HTTP/1.1\r\nHost: {ip}\r\nUser-Agent: RapidRecon/3.0\r\nOrigin: https://evil-domain.com\r\nConnection: close\r\n\r\n"
+            writer.write(req.encode())
+            await writer.drain()
+            
+            data = b""
+            while True:
+                chunk = await asyncio.wait_for(reader.read(2048), timeout=1.5)
+                if not chunk: break
+                data += chunk
+                if len(data) > 16384: break # max 16KB
+            writer.close()
+            await writer.wait_closed()
+            
+            content = data.decode(errors='ignore')
+            if '\r\n\r\n' in content:
+                head, body = content.split('\r\n\r\n', 1)
+            else:
+                head, body = content, ""
+                
+            lines = head.split('\r\n')
+            for line in lines[1:]:
+                if not line: break
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    headers[k.lower().strip()] = v.strip()
+                    
+            title_match = re.search(r"<title>(.*?)</title>", body, re.IGNORECASE | re.DOTALL)
+            if title_match:
+                headers['page_title'] = title_match.group(1).strip()
+                
+        except Exception:
+            pass
+        return headers
 
     async def _run_nmap_enrichment(self, host: HostDiscovery) -> None:
         """Runs Nmap to get precise versions and OS fingerprints."""
@@ -553,6 +718,7 @@ class ReportGenerator:
             <div class="grid">
                 <div><b>MAC Address</b>{host.mac_address}</div>
                 <div><b>Vendor</b>{host.vendor}</div>
+                <div><b>OS Guess</b>{host.os_guess}</div>
                 <div><b>Latency</b>{host.latency}</div>
                 <div><b>TTL Value</b>{host.ttl}</div>
             </div>
@@ -585,16 +751,15 @@ class ReportGenerator:
 # ══════════════════════════════════════════════════════════════
 
 BANNER = """
-╔══════════════════════════════════════════════════════════════╗
-║  ██████╗  █████╗ ██████╗ ██╗██████╗                          ║
-║  ██╔══██╗██╔══██╗██╔══██╗██║██╔══██╗                         ║
-║  ██████╔╝███████║██████╔╝██║██║  ██║                         ║
-║  ██╔══██╗██╔══██║██╔═══╝ ██║██║  ██║                         ║
-║  ██║  ██║██║  ██║██║     ██║██████╔╝                         ║
-║  ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝╚═════╝                          ║
-║                                                              ║
-║                 ADVANCED NETWORK FORENSICS                   ║
-╚══════════════════════════════════════════════════════════════╝"""
+╔══════════════════════════════════════════════════════════╗
+║  ██████╗  █████╗ ██████╗ ██╗██████╗                      ║
+║  ██╔══██╗██╔══██╗██╔══██╗██║██╔══██╗                     ║
+║  ██████╔╝███████║██████╔╝██║██║  ██║                     ║
+║  ██╔══██╗██╔══██║██╔═══╝ ██║██║  ██║                     ║
+║  ██║  ██║██║  ██║██║     ██║██████╔╝                     ║
+║  ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝╚═════╝   █▄ █ █▀█ █▀█ █ █   ║
+║      ADVANCED NETWORK FORENSICS       █ ▀█ █▄█ █▀█ █▀█   ║
+╚══════════════════════════════════════════════════════════╝"""
 
 async def run_forensic_suite(args: argparse.Namespace) -> None:
     """
@@ -606,8 +771,6 @@ async def run_forensic_suite(args: argparse.Namespace) -> None:
     setup_logger(getattr(args, 'verbose', False), getattr(args, 'quiet', False))
     
     start_time = time.perf_counter()
-    if not getattr(args, 'quiet', False): 
-        print(colorize_text("cyan", BANNER))
     
     scanner = NetworkScanner(args.timeout, args.concurrency)
     live_hosts = await scanner.discover_live_hosts(args.target)
@@ -620,19 +783,27 @@ async def run_forensic_suite(args: argparse.Namespace) -> None:
     host_map = {h.ip: h for h in live_hosts}
     for host in live_hosts:
         await scanner.perform_port_scan(host, args.ports)
+        # Honeypot Detection
+        if len(host.open_ports) > 50:
+            logger.warning(colorize_text("yellow", f"[!] Host {host.ip} has {len(host.open_ports)} open ports. Possible Honeypot or WAF!"))
+            host.vendor = "Honeypot / WAF"
+            host.highest_risk = "info"
     
     # Phase 3: Security Analysis
     analyst = SecurityAnalyst()
     await analyst.analyze_results(host_map, use_nmap=args.nmap)
     
     # Phase 4: Tabular Terminal Output
-    print(colorize_text("bold", "\n" + "╔" + "═"*100 + "╗"))
-    print(colorize_text("bold", f"║ {'IP ADDRESS':<16} │ {'HOSTNAME':<20} │ {'MAC ADDRESS':<18} │ {'VENDOR':<15} │ {'LAT':<5} │ {'STATUS':<9} ║"))
-    print(colorize_text("bold", "╠" + "═"*100 + "╣"))
+    table_width = 111
+    print(colorize_text("bold", "\n" + "╔" + "═"*table_width + "╗"))
+    print(colorize_text("bold", f"║ {'IP ADDRESS':<15} │ {'HOSTNAME':<18} │ {'MAC ADDRESS':<17} │ {'VENDOR':<12} │ {'OS GUESS':<15} │ {'LAT':<5} │ {'STATUS':<9} ║"))
+    print(colorize_text("bold", "╠" + "═"*table_width + "╣"))
     for ip, hr in sorted(host_map.items()):
         color = {"critical":"red", "high":"yellow", "medium":"blue", "low":"cyan"}.get(hr.highest_risk, "green")
-        print(f"║ {ip:<16} │ {hr.hostname[:20]:<20} │ {hr.mac_address:<18} │ {hr.vendor[:15]:<15} │ {hr.latency:<5} │ {colorize_text(color, hr.highest_risk.upper()):<9} ║")
-    print(colorize_text("bold", "╚" + "═"*100 + "╝\n"))
+        status_padded = f"{hr.highest_risk.upper():<9}"
+        colored_status = colorize_text(color, status_padded)
+        print(f"║ {ip:<15} │ {hr.hostname[:18]:<18} │ {hr.mac_address:<17} │ {hr.vendor[:12]:<12} │ {hr.os_guess[:15]:<15} │ {hr.latency:<5} │ {colored_status} ║")
+    print(colorize_text("bold", "╚" + "═"*table_width + "╝\n"))
 
     # Phase 5: Report Generation
     reporter = ReportGenerator()
@@ -655,9 +826,22 @@ async def interactive_wizard() -> None:
                 sys.exit(0)
             return val or (default if default is not None else "")
             
-        target = ""
-        while not target: 
-            target = _get_input("[1/5] Target IP/Subnet: ")
+        def _get_local_subnet() -> str:
+            import socket
+            import ipaddress
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                s.connect(('10.255.255.255', 1))
+                return str(ipaddress.IPv4Network(f"{s.getsockname()[0]}/24", strict=False))
+            except Exception:
+                return "192.168.1.0/24"
+            finally:
+                s.close()
+                
+        target = _get_input("[1/5] Target IP/Subnet (leave blank for Auto-Detect): ")
+        if not target:
+            target = _get_local_subnet()
+            print(colorize_text("green", f"[*] Auto-detected local subnet: {target}"))
             
         ports = _get_input("[2/5] Ports (default 1-1024): ", "1-1024")
         conc = _get_input("[3/5] Concurrency (def 500): ", "500")
@@ -709,8 +893,11 @@ def main() -> None:
     else:
         # CLI Mode
         parser = setup_argparse()
+        args = parser.parse_args()
+        if not getattr(args, 'quiet', False):
+            print(colorize_text("cyan", BANNER))
         try:
-            asyncio.run(run_forensic_suite(parser.parse_args()))
+            asyncio.run(run_forensic_suite(args))
         except KeyboardInterrupt:
             print("\nScan interrupted by user.")
             sys.exit(130)

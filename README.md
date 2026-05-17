@@ -1,100 +1,118 @@
 <div align="center">
+  <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/solid/shield-halved.svg" width="80" alt="Shield Logo">
+  <h1>RapidRecon Pro</h1>
+  <p><strong>Ultra-Forensic Network & Wireless Reconnaissance Arsenal</strong></p>
   
-# RapidRecon Pro
-**Advanced Network Reconnaissance & Audit Tool**
-
-[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Status: Production](https://img.shields.io/badge/Status-Production-success.svg)](#)
-
+  <p>
+    <img src="https://img.shields.io/badge/version-6.5--PRO-blue.svg?style=for-the-badge&color=0ea5e9" alt="Version">
+    <img src="https://img.shields.io/badge/python-3.8+-green.svg?style=for-the-badge&color=10b981" alt="Python Version">
+    <img src="https://img.shields.io/badge/os-Linux%20%7C%20macOS-orange.svg?style=for-the-badge&color=f59e0b" alt="OS">
+    <img src="https://img.shields.io/badge/license-MIT-red.svg?style=for-the-badge&color=ef4444" alt="License">
+  </p>
 </div>
 
-## Overview
-**RapidRecon Pro** is an enterprise-grade, highly concurrent network reconnaissance and forensic audit tool developed by SUT PROJECTS. Designed for authorized penetration testing and proactive security monitoring, RapidRecon seamlessly blends lightning-fast asynchronous port scanning with deep vulnerability analysis, compiling results into beautifully formatted terminal outputs and interactive HTML dashboards.
+<br>
+
+<div align="center">
+  <img src="assets/rapidrecon_demo.webp" alt="RapidRecon Action Demo" width="900" style="border-radius: 12px; box-shadow: 0px 10px 20px rgba(0,0,0,0.5);">
+</div>
+
+<br>
+
+## ⚡ Overview
+
+**RapidRecon Pro** is an academic-grade, hyper-optimized forensic network scanner and wireless intelligence suite built for modern penetration testing. 
+
+Engineered with an entirely non-blocking asynchronous core, it tears through massive network segments in seconds while simultaneously executing advanced protocol forensics, real-time wireless decloaking, and CVSS-weighted vulnerability assessments.
+
+Developed by **Mohamed Abdelrazek (NOAH)** for advanced cybersecurity operations.
 
 ---
 
-## ⚡ Key Features
-- **High-Concurrency Scanning**: Uses `asyncio` to scan hundreds of ports and hosts simultaneously, minimizing network audit times.
-- **Vulnerability Intelligence**: Cross-references open ports against a database of 40+ known vulnerabilities, mapping services to CVE references.
-- **Smart OS & Service Fingerprinting**: Automatically parses service banners to intelligently detect vendors (Huawei, TP-Link, MikroTik, Apache, Nginx, etc.).
-- **Nmap Enrichment (Optional)**: Seamlessly integrates with standard Nmap `-sV -O` flags for granular OS and service identification.
-- **Professional Reporting**: Generates interactive, visually stunning HTML forensic reports automatically.
-- **User-Friendly Interactive Wizard**: A straightforward CLI wizard for users who prefer guided executions over command-line flags.
+## 🔥 Next-Generation Features
+
+### 🚀 Asynchronous Reconnaissance Engine
+- **Non-blocking Architecture**: Completely asynchronous I/O sweeps using Python's `asyncio` for zero thread-blocking overhead.
+- **5-Method Discovery Sweep**: Automatically correlates hosts using ICMP Ping, ARP Table enumeration, TCP Multi-port scanning, mDNS, and NetBIOS broadcasts.
+- **Deep Service Profiling**: Extracts banners, application versions, and HTML `<title>` tags silently.
+
+### 📡 Automated Wireless Intelligence
+- **Hidden Network Decloaking**: Automatically intercepts `Dot11ProbeRequest` frames to expose hidden SSIDs (BSSID resolution).
+- **Aggressive Deauthentication**: Optional user-confirmed deauthentication attacks (`--deauth`) to force clients to reconnect and expose WPA/WPA2 handshakes.
+- **Intelligent Interface Cleanup**: Ensures your Wi-Fi interface is flawlessly restored from `monitor` mode to `managed` mode upon unexpected exits or crashes.
+- **Multi-Source Name Resolution**: Resolves client names via DHCP, NetBIOS, mDNS, Apple OUI mapping, and Probe Requests.
+
+### 🛡️ Exploitation & Vulnerability Matrix
+- **Automated Exploitation Engine**: Detects anonymous FTP logins, open Redis/MongoDB databases, exposed Docker APIs, and Elasticsearch clusters.
+- **CVSS v3.1 Risk Scoring**: Automatically assigns risk levels to open ports based on real-world vulnerabilities (e.g., MS17-010 EternalBlue, BlueKeep, VNC No-Auth).
+- **TLS Tagging**: Pulls Common Names (CN) and Subject Alternative Names (SAN) from SSL/TLS certificates.
+
+### 📊 Master Reporting
+- **Dynamic Terminal Displays**: Fully dynamic, perfectly aligned Unicode UI tables that scale with your terminal.
+- **HTML Dashboards**: Automatically generates beautiful, color-coded HTML forensics dashboards after scanning.
 
 ---
 
 ## 🛠️ Installation
 
-### Prerequisites
-- **Python 3.8+**
-- **Nmap**: Required for advanced operating system and service fingerprinting (`--nmap` flag).
-  - *Linux*: `sudo apt install nmap`
-  - *macOS*: `brew install nmap`
-  - *Windows*: Download from the [official Nmap site](https://nmap.org/download.html)
+**RapidRecon** requires Python 3.8+ and relies on `scapy` for its wireless forensic operations.
 
-### Setup
-1. Clone the repository (or download the script):
-   ```bash
-   git clone https://github.com/your-org/RapidReconPro.git
-   cd RapidReconPro
-   ```
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/RapidRecon.git
+cd RapidRecon
 
-2. No external Python dependencies are strictly required! The tool is built primarily on Python standard libraries for ultimate portability.
+# Install dependencies
+pip3 install -r requirements.txt
+```
 
-3. Make it executable (Linux/macOS):
-   ```bash
-   chmod +x RapidRecon.py
-   ```
+> **Note**: For wireless scanning (`--wireless`), ensure `aircrack-ng` suite (`airmon-ng`, `airodump-ng`) is installed on your Linux system.
 
 ---
 
-## 🚀 Usage
+## 💻 Usage
 
-### 1. Interactive Wizard
-For an easy, guided setup, simply run the script without any arguments:
+RapidRecon Pro features a modular and interactive command-line interface.
+
+### Network Reconnaissance & Exploitation
+
 ```bash
-python3 RapidRecon.py
-```
-*The wizard will prompt you for the target IP/Subnet, Port ranges, concurrency levels, and report output directories.*
+# Standard 5-method network sweep with stealth jitter
+sudo ./RapidRecon.py --target 192.168.1.0/24 --stealth
 
-### 2. Command Line Interface
-For advanced users or automated scripts, use the command-line flags:
+# Deep inspection of a single target with exploitation engine enabled
+sudo ./RapidRecon.py --target 10.10.10.150 --exploit --stealth
 
-**Basic Scan (Targeting a subnet)**
-```bash
-python3 RapidRecon.py -t 192.168.1.0/24
-```
-
-**Advanced Scan (Specific ports, Nmap integration, High concurrency)**
-```bash
-# Requires sudo on Linux for optimal Nmap OS detection
-sudo python3 RapidRecon.py -t 10.0.0.1-10.0.0.100 -p 21,22,80,443,445,3389 --nmap --concurrency 1000
+# Scan specific ports
+sudo ./RapidRecon.py --target 192.168.1.1-254 --ports 21,22,80,443,445
 ```
 
-### CLI Arguments
-| Flag | Name | Description | Default |
-| :--- | :--- | :--- | :--- |
-| `-t`, `--target` | Target | **(Required)** Target IP, CIDR (e.g., `192.168.1.0/24`), or range (`10.0.0.1-10`) | *None* |
-| `-p`, `--ports` | Ports | Comma-separated list or range of ports to scan. | `1-1024` |
-| `--nmap` | Nmap Sync | Enables deep Nmap OS and service scanning on discovered ports. | `False` |
-| `--timeout` | Timeout | Connection timeout per port in seconds. | `1.0` |
-| `--concurrency` | Concurrency | Maximum simultaneous concurrent connections. | `500` |
-| `--output` | Output Dir | Directory to save the generated HTML report. | `./reports/` |
-| `-v`, `--verbose` | Verbose | Enable debug-level logging. | `False` |
-| `-q`, `--quiet` | Quiet Mode | Suppress ASCII banner and progress output. | `False` |
+### Wireless Intelligence
+
+```bash
+# Launch wireless forensic suite (auto-discovers interfaces)
+sudo ./RapidRecon.py --wireless
+
+# Enable aggressive deauthentication mode for hidden networks
+sudo ./RapidRecon.py --wireless --deauth
+```
 
 ---
 
-## 👨‍💻 Authors & Credits
+## 🧠 Software Architecture Highlights
 
-**SUT PROJECTS** — Forensic Auditing Team
-- **Mohamed Abdelrazek (NOAH)** - *Lead Developer*
-- **Mohamed Hany**
-- **Seif**
-- **Anwar**
+* **Reentrant Locking Mechanisms**: Deadlock-free threaded interactions during heavy `Dot11` packet processing.
+* **Coroutines over Threads**: Migrated legacy threaded blocking calls to purely asynchronous `asyncio.wait_for` structures.
+* **Resilient I/O Streams**: Flawless handling of FTP, SMB, and DNS protocols over pure asynchronous Python sockets without third-party heavy dependencies.
 
 ---
 
-## ⚠️ Legal Disclaimer
-**AUTHORIZED USE ONLY.** RapidRecon Pro is designed solely for use by authorized security professionals and system administrators. The authors are not responsible for any misuse or damage caused by this software. Always ensure you have explicit permission before scanning any network or device.
+## ⚠️ Disclaimer
+
+This tool is strictly for **Authorized Penetration Testing** and **Educational Purposes**. 
+The authors and contributors are not responsible for any misuse or damage caused by this software. Never scan, exploit, or deauthenticate networks you do not own or have explicit, documented permission to test.
+
+---
+<div align="center">
+  <p><i>Developed with passion by <b>Mohamed Abdelrazek (NOAH)</b></i></p>
+</div>
